@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Alert } from 'react-native';
 import { Linking } from 'react-native';
+import { useState } from 'react';
 
 import { EnTeteMission } from '@/components/detail/EnTeteMission';
 import { InformationMission } from '@/components/detail/InformationMission';
@@ -10,33 +11,40 @@ import { InformationsDateHeure } from '@/components/detail/InformationsDateHeure
 import { VehiculeMission } from '@/components/detail/VehiculeMission';
 import { DescriptionMission } from '@/components/detail/DescriptionMission';
 import { BoutonActionMission } from '@/components/detail/BoutonActionMission';
+import { ModalSignalement } from '@/components/detail/ModalSignalement';
 
 import { useMissionDetail } from '@/hooks/useMissionDetail';
 import { useMissions } from '@/hooks/useMissions';
 import { useMissionAction } from '@/hooks/useMissionAction';
+import { useSignalement } from '@/hooks/useSignalement';
 import { useGeolocalisation } from '@/hooks/useGeolocalisation';
 import { demanderAutorisationLocalisation } from '@/services/geolocalisation';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function DetailMission() {
 
   const router = useRouter();
 
-  // Récupère l'identifiant présent dans l'URL :
-  // /mission/2 → id = "2"
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const missionId = Number(id);
   const { missions } = useMissions();
 
-  const {
-  demarrer,
-  terminer,
-  chargement: chargementAction,
-  erreur: erreurAction,
-} = useMissionAction();
+  const [modalSignalementVisible, setModalSignalementVisible] =
+    useState(false);
 
-  // Récupère directement la mission depuis le backend
-  // avec GET /api/operations/missions/{id}/
+  const {
+    demarrer,
+    terminer,
+    chargement: chargementAction,
+    erreur: erreurAction,
+  } = useMissionAction();
+
+  const {
+    envoyerSignalement,
+    chargement: chargementSignalement,
+  } = useSignalement();
+
   const {
     mission,
     chargement,
@@ -44,16 +52,15 @@ export default function DetailMission() {
     mettreAJourMission,
   } = useMissionDetail(missionId);
 
-    const vehiculeId = mission?.vehicule?.id ?? null;
+  const vehiculeId = mission?.vehicule?.id ?? null;
 
-    const {
+  const {
     suiviActif,
     erreur: erreurGeolocalisation,
-    } = useGeolocalisation(
+  } = useGeolocalisation(
     vehiculeId,
-    //le GPS ne démarre que si la mission est en cour
     mission?.statut === 'EN_COURS'
-    );
+  );
 
   const handleRetour = () => {
     router.back();
@@ -65,89 +72,104 @@ export default function DetailMission() {
     }
 
     if (mission.statut === 'PREVU') {
-        // Demande d'abord l'autorisation GPS.
-        const autorisationAccordee =
-            await demanderAutorisationLocalisation();
+      const autorisationAccordee =
+        await demanderAutorisationLocalisation();
 
-        if (!autorisationAccordee) {
-            Alert.alert(
-                'Localisation nécessaire',
-                'Pour démarrer cette mission, l’autorisation de localisation est nécessaire afin de suivre la position du véhicule.',
-                //tableau de boutons
-                [
-                    //Ici, on crée un seul bouton
-                {
-                    //le texte affiché sur le bouton
-                    text: 'Annuler',
-                    //Cela indique à React Native que c'est un bouton de type annulation.
-                    style: 'cancel',
-                },
-                {
-                    text: 'Ouvrir les réglages',
-                    onPress: () => Linking.openSettings(),
-                },
-                ]
-            );
+      if (!autorisationAccordee) {
+        Alert.alert(
+          'Localisation nécessaire',
+          'Pour démarrer cette mission, l’autorisation de localisation est nécessaire afin de suivre la position du véhicule.',
+          [
+            {
+              text: 'Annuler',
+              style: 'cancel',
+            },
+            {
+              text: 'Ouvrir les réglages',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
 
-            return;
-        }
+        return;
+      }
 
-        // L'autorisation GPS est accordée.
-        // On peut maintenant démarrer la mission côté backend.
-        const missionDemarree = await demarrer(mission.id);
+      const missionDemarree = await demarrer(mission.id);
 
-        if (!missionDemarree) {
-            return;
-        }
+      if (!missionDemarree) {
+        return;
+      }
 
-        // Met à jour la mission dans l'écran.
-        // Son statut devient EN_COURS.
-        mettreAJourMission(missionDemarree);
-
+      mettreAJourMission(missionDemarree);
     }
 
     if (mission.statut === 'EN_COURS') {
-        const missionTerminee = await terminer(mission.id);
+      const missionTerminee = await terminer(mission.id);
 
-        if (!missionTerminee) {
-            return;
-        }
+      if (!missionTerminee) {
+        return;
+      }
 
-        // Met à jour la mission.
-        // Son statut devient TERMINEE.
-        mettreAJourMission(missionTerminee);
+      mettreAJourMission(missionTerminee);
     }
   };
 
-  // Pendant le chargement
+  const handleEnvoyerSignalement = async (donnees: {
+    mission: number;
+    type_probleme: string;
+    description: string;
+    photo?: {
+      uri: string;
+      name: string;
+      type: string;
+    } | null;
+  }) => {
+
+    const signalement =
+      await envoyerSignalement(donnees);
+
+    if (!signalement) {
+      return;
+    }
+
+    setModalSignalementVisible(false);
+
+    Alert.alert(
+      'Signalement envoyé',
+      'Votre signalement a bien été envoyé au responsable.'
+    );
+  };
+
   if (chargement) {
     return (
-      <SafeAreaView style={styles.ecran} edges={['top', 'bottom']} />
+      <SafeAreaView
+        style={styles.ecran}
+        edges={['top', 'bottom']}
+      />
     );
   }
 
-  // En cas d'erreur ou de mission introuvable
   if (erreur || !mission) {
     return (
-      <SafeAreaView style={styles.ecran} edges={['top', 'bottom']} />
+      <SafeAreaView
+        style={styles.ecran}
+        edges={['top', 'bottom']}
+      />
     );
   }
 
-    //vérifier Est-ce qu’il y a une AUTRE mission déjà en cours ?
-    //si c'est le cas on doit desactiver le bouton demarrer de cette mission
-    // autreMissionEnCours est true si on trouve, false si on ne trouve pas car find retourne undefined s'il ne trouve pas ce qu'il recherche.
-    const autreMissionEnCours = missions.find(
+  const autreMissionEnCours = missions.find(
     (missionItem) =>
-        missionItem.statut === 'EN_COURS' &&
-        missionItem.id !== mission.id
-    ) !== undefined;
-
+      missionItem.statut === 'EN_COURS' &&
+      missionItem.id !== mission.id
+  ) !== undefined;
 
   return (
     <SafeAreaView
       style={styles.ecran}
       edges={['top', 'bottom']}
     >
+
       <EnTeteMission
         nomDemandeur={mission.demande_chargement.demandeur}
         onRetour={handleRetour}
@@ -170,7 +192,8 @@ export default function DetailMission() {
             mission.vehicule?.immatriculation ?? 'Non affecté'
           }
           typeVehicule={
-            mission.vehicule?.type_vehicule ?? 'Type non renseigné'
+            mission.vehicule?.type_vehicule ??
+            'Type non renseigné'
           }
         />
 
@@ -180,6 +203,14 @@ export default function DetailMission() {
             'Aucune description disponible.'
           }
         />
+
+        {mission.statut === 'EN_COURS' && (
+          <BoutonSignalement
+            onPress={() =>
+              setModalSignalementVisible(true)
+            }
+          />
+        )}
       </ScrollView>
 
       <BoutonActionMission
@@ -187,7 +218,43 @@ export default function DetailMission() {
         onAppui={handleAction}
         demarrageDesactive={autreMissionEnCours}
       />
+
+      <ModalSignalement
+        visible={modalSignalementVisible}
+        missionId={mission.id}
+        chargement={chargementSignalement}
+        onFermer={() =>
+          setModalSignalementVisible(false)
+        }
+        onEnvoyer={handleEnvoyerSignalement}
+      />
+
     </SafeAreaView>
+  );
+}
+
+interface ProprietesBoutonSignalement {
+  onPress: () => void;
+}
+
+function BoutonSignalement({
+  onPress,
+}: ProprietesBoutonSignalement) {
+  return (
+    <Pressable
+      style={styles.boutonSignalement}
+      onPress={onPress}
+    >
+      <Ionicons
+        name="warning-outline"
+        size={20}
+        color="#E53935"
+      />
+
+      <Text style={styles.texteSignalement}>
+        Faire un signalement
+      </Text>
+    </Pressable>
   );
 }
 
@@ -205,5 +272,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 16,
     gap: 16,
+  },
+
+  boutonSignalement: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: '#E53935',
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+
+  texteSignalement: {
+    color: '#E53935',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
