@@ -1,8 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import {
+  Alert,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Alert } from 'react-native';
-import { Linking } from 'react-native';
 import { useState } from 'react';
 
 import { EnTeteMission } from '@/components/detail/EnTeteMission';
@@ -22,7 +30,6 @@ import { demanderAutorisationLocalisation } from '@/services/geolocalisation';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function DetailMission() {
-
   const router = useRouter();
 
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,6 +39,13 @@ export default function DetailMission() {
 
   const [modalSignalementVisible, setModalSignalementVisible] =
     useState(false);
+
+  // État de la fenêtre de saisie du kilométrage.
+  const [modalKilometrageVisible, setModalKilometrageVisible] =
+    useState(false);
+
+  // Kilométrage saisi par l'agent.
+  const [kilometrageSaisi, setKilometrageSaisi] = useState('');
 
   const {
     demarrer,
@@ -104,14 +118,68 @@ export default function DetailMission() {
     }
 
     if (mission.statut === 'EN_COURS') {
-      const missionTerminee = await terminer(mission.id);
-
-      if (!missionTerminee) {
-        return;
-      }
-
-      mettreAJourMission(missionTerminee);
+      // Demander le kilométrage avant de terminer la mission.
+      setKilometrageSaisi('');
+      setModalKilometrageVisible(true);
     }
+  };
+
+  /**
+   * Valide le kilométrage et demande au backend de terminer la mission.
+   */
+  const handleTerminerMission = async () => {
+    if (!mission) {
+      return;
+    }
+
+    if (kilometrageSaisi.trim() === '') {
+      Alert.alert(
+        'Kilométrage obligatoire',
+        'Veuillez saisir le kilométrage du véhicule à l’arrivée.'
+      );
+
+      return;
+    }
+
+    const kilometrage = Number(kilometrageSaisi);
+
+    if (
+      !Number.isSafeInteger(kilometrage) ||
+      kilometrage < 0
+    ) {
+      Alert.alert(
+        'Kilométrage invalide',
+        'Veuillez saisir un kilométrage entier positif ou nul.'
+      );
+
+      return;
+    }
+
+    // Envoyer le kilométrage au backend.
+    const missionTerminee = await terminer(
+      mission.id,
+      kilometrage
+    );
+
+    if (!missionTerminee) {
+      Alert.alert(
+        'Erreur',
+        erreurAction ?? 'Impossible de terminer la mission.'
+      );
+
+      return;
+    }
+
+    // Actualiser la mission après sa validation par le backend.
+    mettreAJourMission(missionTerminee);
+
+    setModalKilometrageVisible(false);
+    setKilometrageSaisi('');
+
+    Alert.alert(
+      'Mission terminée',
+      'La mission a été terminée avec succès.'
+    );
   };
 
   const handleEnvoyerSignalement = async (donnees: {
@@ -124,9 +192,7 @@ export default function DetailMission() {
       type: string;
     } | null;
   }) => {
-
-    const signalement =
-      await envoyerSignalement(donnees);
+    const signalement = await envoyerSignalement(donnees);
 
     if (!signalement) {
       return;
@@ -158,18 +224,18 @@ export default function DetailMission() {
     );
   }
 
-  const autreMissionEnCours = missions.find(
-    (missionItem) =>
-      missionItem.statut === 'EN_COURS' &&
-      missionItem.id !== mission.id
-  ) !== undefined;
+  const autreMissionEnCours =
+    missions.find(
+      (missionItem) =>
+        missionItem.statut === 'EN_COURS' &&
+        missionItem.id !== mission.id
+    ) !== undefined;
 
   return (
     <SafeAreaView
       style={styles.ecran}
       edges={['top', 'bottom']}
     >
-
       <EnTeteMission
         nomDemandeur={mission.demande_chargement.demandeur}
         onRetour={handleRetour}
@@ -204,13 +270,11 @@ export default function DetailMission() {
           }
         />
 
-        {mission.statut === 'EN_COURS' && (
-          <BoutonSignalement
-            onPress={() =>
-              setModalSignalementVisible(true)
-            }
-          />
-        )}
+        
+        <BoutonSignalement
+          onPress={() => setModalSignalementVisible(true)}
+        />
+        
       </ScrollView>
 
       <BoutonActionMission
@@ -219,16 +283,82 @@ export default function DetailMission() {
         demarrageDesactive={autreMissionEnCours}
       />
 
+      {/* Fenêtre de signalement existante */}
       <ModalSignalement
         visible={modalSignalementVisible}
         missionId={mission.id}
         chargement={chargementSignalement}
-        onFermer={() =>
-          setModalSignalementVisible(false)
-        }
+        onFermer={() => setModalSignalementVisible(false)}
         onEnvoyer={handleEnvoyerSignalement}
       />
 
+      {/* Fenêtre de saisie du kilométrage à l'arrivée */}
+      <Modal
+        visible={modalKilometrageVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!chargementAction) {
+            setModalKilometrageVisible(false);
+          }
+        }}
+      >
+        <View style={styles.fondModal}>
+          <View style={styles.carteModal}>
+            <Text style={styles.titreModal}>
+              Terminer la mission
+            </Text>
+
+            <Text style={styles.descriptionModal}>
+              Saisissez le kilométrage actuel du véhicule à son arrivée.
+            </Text>
+
+            <Text style={styles.labelKilometrage}>
+              Kilométrage à l'arrivée (km)
+            </Text>
+
+            <TextInput
+              style={styles.champKilometrage}
+              value={kilometrageSaisi}
+              onChangeText={setKilometrageSaisi}
+              placeholder="Ex. : 125000"
+              keyboardType="number-pad"
+              maxLength={10}
+              editable={!chargementAction}
+            />
+
+            <View style={styles.actionsModal}>
+              <Pressable
+                style={styles.boutonAnnuler}
+                onPress={() => {
+                  setModalKilometrageVisible(false);
+                  setKilometrageSaisi('');
+                }}
+                disabled={chargementAction}
+              >
+                <Text style={styles.texteAnnuler}>
+                  Annuler
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.boutonConfirmer,
+                  chargementAction && styles.boutonDesactive,
+                ]}
+                onPress={handleTerminerMission}
+                disabled={chargementAction}
+              >
+                <Text style={styles.texteConfirmer}>
+                  {chargementAction
+                    ? 'Validation...'
+                    : 'Confirmer'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -290,5 +420,94 @@ const styles = StyleSheet.create({
     color: '#E53935',
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  // Styles de la fenêtre de kilométrage.
+  fondModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+
+  carteModal: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 24,
+  },
+
+  titreModal: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0F2A4A',
+    marginBottom: 10,
+  },
+
+  descriptionModal: {
+    fontSize: 14,
+    color: '#667085',
+    lineHeight: 21,
+    marginBottom: 22,
+  },
+
+  labelKilometrage: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#344054',
+    marginBottom: 8,
+  },
+
+  champKilometrage: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#101828',
+    marginBottom: 24,
+  },
+
+  actionsModal: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+
+  boutonAnnuler: {
+    height: 46,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  texteAnnuler: {
+    color: '#344054',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  boutonConfirmer: {
+    height: 46,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    backgroundColor: '#0F2A4A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  texteConfirmer: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  boutonDesactive: {
+    opacity: 0.6,
   },
 });
