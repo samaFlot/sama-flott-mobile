@@ -40,13 +40,17 @@ export const demarrerMission = async (
 };
 
 /**
- * Termine une mission grâce à son identifiant.
+ * Termine une mission en enregistrant le kilométrage à l'arrivée.
  */
 export const terminerMission = async (
-  missionId: number
+  missionId: number,
+  kilometrage: number
 ): Promise<Mission> => {
   const reponse = await api.post<Mission>(
-    `/operations/missions/${missionId}/terminer/`
+    `/operations/missions/${missionId}/terminer/`,
+    {
+      kilometrage: kilometrage,
+    }
   );
 
   return reponse.data;

@@ -5,9 +5,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Création d'une instance Axios dédiée à notre API Django.
 const api = axios.create({
-  // Adresse de base de notre backend Django.
-  baseURL: "http://192.168.1.16:8000/api",
-
+  // Adresse de base de notre backend Django.192.168.1.16 ,  192.168.1.121
+  baseURL: "http://192.168.1.147:8000/api",
   // Temps maximum d'attente d'une requête.
   timeout: 30000,
 });

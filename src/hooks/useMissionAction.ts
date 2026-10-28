@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { demarrerMission, terminerMission, } from '@/services/missions';
+import { demarrerMission, terminerMission } from '@/services/missions';
 
 export const useMissionAction = () => {
   const [chargement, setChargement] = useState(false);
@@ -21,9 +21,7 @@ export const useMissionAction = () => {
         error
       );
 
-      setErreur(
-        'Impossible de démarrer la mission.'
-      );
+      setErreur('Impossible de démarrer la mission.');
 
       return null;
     } finally {
@@ -32,32 +30,36 @@ export const useMissionAction = () => {
   };
 
   /**
- * Termine la mission en cours.
- */
-const terminer = async (missionId: number) => {
-  try {
-    setChargement(true);
-    setErreur(null);
+   * Termine la mission en enregistrant le kilométrage à l'arrivée.
+   */
+  const terminer = async (
+    missionId: number,
+    kilometrage: number
+  ) => {
+    try {
+      setChargement(true);
+      setErreur(null);
 
-    // Demande au backend de terminer la mission.
-    const missionTerminee = await terminerMission(missionId);
+      // Envoie le kilométrage au backend pour terminer la mission.
+      const missionTerminee = await terminerMission(
+        missionId,
+        kilometrage
+      );
 
-    return missionTerminee;
-  } catch (error) {
-    console.error(
-      'Erreur lors de la fin de la mission :',
-      error
-    );
+      return missionTerminee;
+    } catch (error) {
+      console.error(
+        'Erreur lors de la fin de la mission :',
+        error
+      );
 
-    setErreur(
-      'Impossible de terminer la mission.'
-    );
+      setErreur('Impossible de terminer la mission.');
 
-    return null;
-  } finally {
-    setChargement(false);
-  }
-};
+      return null;
+    } finally {
+      setChargement(false);
+    }
+  };
 
   return {
     demarrer,
